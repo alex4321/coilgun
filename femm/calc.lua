@@ -149,6 +149,44 @@ function create_rotation_body(geometry, group_id)
 		mi_clearselected()
 	end
 
+	function append_if_not_presented(points, new_point)
+		local count = getn(points)
+		if count == 0 then
+			append(points, new_point)
+		else
+			local append_point = 1
+			local elements = min(count, 16)
+			for i=1,elements do
+				local check_point = points[count - i + 1]
+				if (check_point[1] == new_point[1]) and (check_point[2] == new_point[2]) then
+					append_point = 0
+					break
+				end
+			end
+			if append_point then
+				append(points, new_point)
+			end
+		end
+	end
+
+	function simplify_points(points)
+		local simplified = {}
+		append(simplified, points[1])
+		local count = getn(points)
+		for i=2,count-1 do
+			local point = points[i]
+			local prev_point = points[i - 1]
+			local next_point = points[i + 1]
+			if (point[1] ~= prev_point[1]) or (point[1] ~= next_point[1]) then
+				append(simplified, point)
+			end
+		end
+		if count > 1 then
+			append(simplified, points[count])
+		end
+		return simplified
+	end
+
 	local y_offset = geometry["y_offset"]
 	local inner_points = {}
 	local outer_points = {}
@@ -156,13 +194,43 @@ function create_rotation_body(geometry, group_id)
 	for i, point in geometry["points"] do
 		local y = y_offset + i * geometry["step_mm"]
 		local inner_radius, outer_radius = point[1], point[2]
-		--if i == 1 then
-			append(inner_points, {inner_radius, y - geometry["step_mm"]})
-			append(outer_points, {outer_radius, y - geometry["step_mm"]})
-		--end
-		append(inner_points, {inner_radius, y})
-		append(outer_points, {outer_radius, y})
+		if i == getn(geometry["points"]) then
+			append_if_not_presented(inner_points, {inner_radius, y - geometry["step_mm"]})
+			append_if_not_presented(inner_points, {inner_radius, y})
+			append_if_not_presented(outer_points, {outer_radius, y - geometry["step_mm"]})
+			append_if_not_presented(outer_points, {outer_radius, y})
+		end
+		if i == 1 then
+			append_if_not_presented(inner_points, {inner_radius, y - geometry["step_mm"]})
+			append_if_not_presented(inner_points, {inner_radius, y})
+			append_if_not_presented(outer_points, {outer_radius, y - geometry["step_mm"]})
+			append_if_not_presented(outer_points, {outer_radius, y})
+		end
+		if (i > 1) and (i < getn(geometry["points"])) then
+			local last_point = geometry["points"][i - 1]
+			local next_point = geometry["points"][i + 1]
+			if inner_radius ~= last_point[1] then
+				append_if_not_presented(inner_points, {inner_radius, y - geometry["step_mm"]})
+				append_if_not_presented(inner_points, {inner_radius, y})
+			end
+			if inner_radius ~= next_point[1] then
+				append_if_not_presented(inner_points, {inner_radius, y})
+				append_if_not_presented(inner_points, {next_point[1], y})
+			end
+			if outer_radius ~= last_point[2] then
+				append_if_not_presented(outer_points, {last_point[2], y - geometry["step_mm"]})
+				append_if_not_presented(outer_points, {outer_radius, y - geometry["step_mm"]})
+				append_if_not_presented(outer_points, {outer_radius, y})
+			end
+			if outer_radius ~= next_point[2] then
+				append_if_not_presented(outer_points, {outer_radius, y})
+				append_if_not_presented(outer_points, {next_point[2], y})
+				append_if_not_presented(outer_points, {next_point[2], y + geometry["step_mm"]})
+			end
+		end
 	end
+	inner_points = simplify_points(inner_points)
+	outer_points = simplify_points(outer_points)
 
 	build_line(inner_points, group_id)
 	build_line(outer_points, group_id)
@@ -173,16 +241,17 @@ function create_rotation_body(geometry, group_id)
 	mi_addsegment(inner_points[1][1], inner_points[1][2], outer_points[1][1], outer_points[1][2])
 	mi_clearselected()
 
-	local point_count = getn(inner_points)
-	mi_selectnode(inner_points[point_count][1], inner_points[point_count][2])
-	mi_selectnode(outer_points[point_count][1], outer_points[point_count][2])
+	local inner_point_count = getn(inner_points)
+	local outer_point_count = getn(outer_points)
+	mi_selectnode(inner_points[inner_point_count][1], inner_points[inner_point_count][2])
+	mi_selectnode(outer_points[outer_point_count][1], outer_points[outer_point_count][2])
 	mi_setnodeprop("", group_id)
-	mi_addsegment(inner_points[point_count][1], inner_points[point_count][2],
-			      outer_points[point_count][1], outer_points[point_count][2])
+	mi_addsegment(inner_points[inner_point_count][1], inner_points[inner_point_count][2],
+			      outer_points[outer_point_count][1], outer_points[outer_point_count][2])
 	mi_clearselected()
 
-	local inner_x = (inner_points[1][1] + outer_points[1][1]) / 2
-	local inner_y = (inner_points[1][2] + inner_points[2][2]) / 2
+	local inner_x = (geometry["points"][1][1] + geometry["points"][1][2]) / 2
+	local inner_y = geometry["y_offset"] + geometry["step_mm"] / 2
 
 	return inner_x, inner_y
 end
@@ -360,7 +429,6 @@ function analyze(config, results)
 	while not true do
 		t, F, a, projectile_V, x, dx, I, V_C = analysis_step(m_projectile, R, config,
 				t, dt, I, V_C, projectile_V, x)
-		print(F)
 		append(t_values, t)
 		append(F_values, F)
 		append(a_values, a)
@@ -459,4 +527,4 @@ end
 
 
 main(read_configuration())
---quit()
+quit()
