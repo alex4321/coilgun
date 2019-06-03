@@ -149,88 +149,27 @@ function create_rotation_body(geometry, group_id)
 		mi_clearselected()
 	end
 
-	function append_if_not_presented(points, new_point)
-		local count = getn(points)
-		if count == 0 then
-			append(points, new_point)
-		else
-			local append_point = 1
-			local elements = min(count, 16)
-			for i=1,elements do
-				local check_point = points[count - i + 1]
-				if (check_point[1] == new_point[1]) and (check_point[2] == new_point[2]) then
-					append_point = 0
-					break
-				end
-			end
-			if append_point then
-				append(points, new_point)
-			end
-		end
-	end
-
-	function simplify_points(points)
-		local simplified = {}
-		append(simplified, points[1])
-		local count = getn(points)
-		for i=2,count-1 do
-			local point = points[i]
-			local prev_point = points[i - 1]
-			local next_point = points[i + 1]
-			if (point[1] ~= prev_point[1]) or (point[1] ~= next_point[1]) then
-				append(simplified, point)
-			end
-		end
-		if count > 1 then
-			append(simplified, points[count])
-		end
-		return simplified
-	end
-
 	local y_offset = geometry["y_offset"]
 	local inner_points = {}
 	local outer_points = {}
 
-	for i, point in geometry["points"] do
-		local y = y_offset + i * geometry["step_mm"]
-		local inner_radius, outer_radius = point[1], point[2]
-		if i == getn(geometry["points"]) then
-			append_if_not_presented(inner_points, {inner_radius, y - geometry["step_mm"]})
-			append_if_not_presented(inner_points, {inner_radius, y})
-			append_if_not_presented(outer_points, {outer_radius, y - geometry["step_mm"]})
-			append_if_not_presented(outer_points, {outer_radius, y})
+	append(inner_points, {geometry["points"][1][1], y_offset})
+	append(outer_points, {geometry["points"][1][2], y_offset})
+	for i=2,getn(geometry["points"]) do
+		local point = geometry["points"][i]
+		local prev_point = geometry["points"][i - 1]
+		local y = (i - 1) * geometry["step_mm"] + y_offset
+		if point[1] ~= prev_point[1] then
+			append(inner_points, {prev_point[1], y})
+			append(inner_points, {point[1], y})
 		end
-		if i == 1 then
-			append_if_not_presented(inner_points, {inner_radius, y - geometry["step_mm"]})
-			append_if_not_presented(inner_points, {inner_radius, y})
-			append_if_not_presented(outer_points, {outer_radius, y - geometry["step_mm"]})
-			append_if_not_presented(outer_points, {outer_radius, y})
-		end
-		if (i > 1) and (i < getn(geometry["points"])) then
-			local last_point = geometry["points"][i - 1]
-			local next_point = geometry["points"][i + 1]
-			if inner_radius ~= last_point[1] then
-				append_if_not_presented(inner_points, {inner_radius, y - geometry["step_mm"]})
-				append_if_not_presented(inner_points, {inner_radius, y})
-			end
-			if inner_radius ~= next_point[1] then
-				append_if_not_presented(inner_points, {inner_radius, y})
-				append_if_not_presented(inner_points, {next_point[1], y})
-			end
-			if outer_radius ~= last_point[2] then
-				append_if_not_presented(outer_points, {last_point[2], y - geometry["step_mm"]})
-				append_if_not_presented(outer_points, {outer_radius, y - geometry["step_mm"]})
-				append_if_not_presented(outer_points, {outer_radius, y})
-			end
-			if outer_radius ~= next_point[2] then
-				append_if_not_presented(outer_points, {outer_radius, y})
-				append_if_not_presented(outer_points, {next_point[2], y})
-				append_if_not_presented(outer_points, {next_point[2], y + geometry["step_mm"]})
-			end
+		if point[2] ~= prev_point[2] then
+			append(outer_points, {prev_point[2], y})
+			append(outer_points, {point[2], y})
 		end
 	end
-	inner_points = simplify_points(inner_points)
-	outer_points = simplify_points(outer_points)
+	append(inner_points, {geometry["points"][getn(geometry["points"])][1], geometry["step_mm"] * getn(geometry["points"]) + y_offset})
+	append(outer_points, {geometry["points"][getn(geometry["points"])][2], geometry["step_mm"] * getn(geometry["points"]) + y_offset})
 
 	build_line(inner_points, group_id)
 	build_line(outer_points, group_id)
@@ -363,6 +302,10 @@ function analysis_step(m_projectile, R, config, t0, dt, I0, V_C0, V0, x0)
 	local dx_m = V0 * dt
 	local dx_mm = dx_m * 1000.0
 	local x = x0 + dx_mm
+	local space_end_X = config["space_size_mm"] - config["projectile"]["step_mm"] * (getn(config["projectile"]["points"]) - 2)
+	if x >= space_end_X then
+		x = x0
+	end
 	local V_projectile = V0 + a_projectile * dt
 
 	mi_clearselected()
@@ -415,6 +358,7 @@ function analyze(config, results)
 	local V_C = config["V_C"]
 	local dx, F, a
 	local end_X = config["projectile"]["y_offset"] + config["coil"]["step_mm"] * getn(config["coil"]["points"])
+	local space_end_X = config["space_size_mm"] - config["projectile"]["step_mm"] * (getn(config["projectile"]["points"]) - 2)
 
 	local t_values = {}
 	local F_values = {}
@@ -429,6 +373,7 @@ function analyze(config, results)
 	while not true do
 		t, F, a, projectile_V, x, dx, I, V_C = analysis_step(m_projectile, R, config,
 				t, dt, I, V_C, projectile_V, x)
+		print(F)
 		append(t_values, t)
 		append(F_values, F)
 		append(a_values, a)
@@ -441,7 +386,7 @@ function analyze(config, results)
 		i = i + 1
 		if i >= MAXITER then
 			break
-		elseif I <= 0 then
+		elseif (i > 1) and (F < 1E-2) and (F > -1E-2) then
 			break
 		elseif projectile_V < 0 then
 			break
@@ -453,6 +398,8 @@ function analyze(config, results)
 			if config["switch_disable"](t, x, projectile_V) then
 				break
 			end
+		elseif x >= space_end_X then
+			break
 		end
 	end
 	local simulation_result = {}
@@ -527,4 +474,4 @@ end
 
 
 main(read_configuration())
-quit()
+--quit()

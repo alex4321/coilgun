@@ -10,9 +10,9 @@ __configuration = {
     ["C"] = 900, -- uF,
     ["V_C"] = 450,
     ["I_max"] = nil,
-    ["dt_us"] = 50,
+    ["dt_us"] = 250,
     ["parallel_diode"] = true,
-    ["result_file_name"] = "sample1.txt",
+    ["result_file_name"] = "sample-custom.txt",
 
     ["projectile"] = {
         ["y_offset"] = -19.0,
